@@ -44,23 +44,23 @@ export class UisControllerContract extends Contract {
       access: WRITE | READ | DELETE,
       users: [ctx.clientIdentity.getID()],
     };
-    const user = {
-      id: ctx.clientIdentity.getID(),
-      access: WRITE | READ | DELETE,
-      orgId: ctx.clientIdentity.getMSPID(),
-    };
+    // const user = {
+    //   id: ctx.clientIdentity.getID(),
+    //   access: WRITE | READ | DELETE,
+    //   orgId: ctx.clientIdentity.getMSPID(),
+    // };
     const orgKey = this.GetOrgKey(ctx, org.id);
     await ctx.stub.putState(
       orgKey,
       Buffer.from(stringify(sortKeysRecursive(org)))
     );
-    const userKey = this.GetUserKey(ctx, user.id);
-    await ctx.stub.putState(
-      userKey,
-      Buffer.from(stringify(sortKeysRecursive(user)))
-    );
     console.info(`Org ${JSON.stringify(org)} initialized`);
-    console.info(`User ${JSON.stringify(user)} initialized`);
+    // const userKey = this.GetUserKey(ctx, user.id);
+    // await ctx.stub.putState(
+    //   userKey,
+    //   Buffer.from(stringify(sortKeysRecursive(user)))
+    // );
+    // console.info(`User ${JSON.stringify(user)} initialized`);
     await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify([org.id])));
     await ctx.stub.putState(ADMIN_ORG_KEY, Buffer.from(stringify([org.id])));
     await ctx.stub.putState(INIT_KEY, Buffer.from("initialized"));
@@ -110,8 +110,7 @@ export class UisControllerContract extends Contract {
     if (!exists) {
       throw new Error(`The Org ${orgId} does not exists`);
     }
-    const _orgIds = await ctx.stub.getState(ALL_ORG_KEY);
-    const orgIds = JSON.parse(_orgIds.toString());
+    const orgIds = await this.GetContentByKey(ALL_ORG_KEY);
     const index = orgIds.indexOf(orgId);
     orgIds.splice(index, 1);
     await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify(orgIds)));
@@ -128,8 +127,7 @@ export class UisControllerContract extends Contract {
 
   @Transaction(false)
   async IsAdmin(ctx: Context): Promise<boolean> {
-    const _ADMINS = await ctx.stub.getState(ADMIN_ORG_KEY);
-    const ADMINS = JSON.parse(_ADMINS.toString());
+    const ADMINS = await this.GetContentByKey(ADMIN_ORG_KEY);
     if (ADMINS.includes(ctx.clientIdentity.getMSPID())) {
       return true;
     }
@@ -201,14 +199,36 @@ export class UisControllerContract extends Contract {
 
   @Transaction()
   async AddUser(ctx: Context, userId: string, access: number): Promise<void> {
-    // if (!this.IsOrgOwner(ctx, orgId)) {
-    //   throw new Error(`This ${orgId} has no permission to remove user`);
-    // }
+    const orgId = ctx.clientIdentity.getMSPID();
+    const orgKey = this.GetOrgKey(orgId);
+    const exists = await OrgExists(ctx, orgKey);
+    if (!exists) {
+      throw new Error(`The Org ${orgId} does not exists`);
+    }
+    const org = await this.GetContentByKey(ctx, orgKey);
+    org.users.push(ctx.stub.clientIdentity.getID());
+    await ctx.stub.putState(
+      orgKey,
+      Buffer.from(stringify(sortKeysRecursive(org)))
+    );
   }
+
   @Transaction()
-  async RemoveUser(ctx: Context, orgId: string, userId: string): Promise<void> {
-    // if (!this.IsOrgOwner(ctx, orgId)) {
-    //   throw new Error(`This ${orgId} has no permission to remove user`);
-    // }
+  async RemoveUser(ctx: Context, userId: string): Promise<void> {
+    const orgId = ctx.clientIdentity.getMSPID();
+    const orgKey = this.GetOrgKey(orgId);
+    const exists = await OrgExists(ctx, orgKey);
+    if (!exists) {
+      throw new Error(`The Org ${orgId} does not exists`);
+    }
+    const org = await this.GetContentByKey(ctx, orgKey);
+    const index = org.users.indexOf(userId);
+    if (index >= 0) {
+      org.users.splice(index, 1);
+      await ctx.stub.putState(
+        orgKey,
+        Buffer.from(stringify(sortKeysRecursive(org)))
+      );
+    }
   }
 }
