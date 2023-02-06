@@ -11,8 +11,18 @@ import {
 } from "fabric-contract-api";
 import stringify from "json-stringify-deterministic";
 import sortKeysRecursive from "sort-keys-recursive";
-// import { Asset } from "./asset";
 import { User, Org } from "./model";
+
+// Access
+const WRITE = 0x001;
+const READ = 0x010;
+const DELETE = 0x100;
+
+const orgPrefix = "org";
+const userPrefix = "user";
+const ALL_ORG_KEY = "org-all";
+const ADMIN_ORG_KEY = "org-admin";
+const INIT_KEY = "init";
 
 @Info({
   title: "UisController",
@@ -20,167 +30,180 @@ import { User, Org } from "./model";
 })
 export class UisControllerContract extends Contract {
   @Transaction()
-  public async InitLedger(ctx: Context): Promise<void> {
-    // const assets: Asset[] = [
-    //   {
-    //     ID: "asset1",
-    //     Color: "blue",
-    //     Size: 5,
-    //     Owner: "Tomoko",
-    //     AppraisedValue: 300,
-    //   },
-    //   {
-    //     ID: "asset2",
-    //     Color: "red",
-    //     Size: 5,
-    //     Owner: "Brad",
-    //     AppraisedValue: 400,
-    //   },
-    //   {
-    //     ID: "asset3",
-    //     Color: "green",
-    //     Size: 10,
-    //     Owner: "Jin Soo",
-    //     AppraisedValue: 500,
-    //   },
-    //   {
-    //     ID: "asset4",
-    //     Color: "yellow",
-    //     Size: 10,
-    //     Owner: "Max",
-    //     AppraisedValue: 600,
-    //   },
-    //   {
-    //     ID: "asset5",
-    //     Color: "black",
-    //     Size: 15,
-    //     Owner: "Adriana",
-    //     AppraisedValue: 700,
-    //   },
-    //   {
-    //     ID: "asset6",
-    //     Color: "white",
-    //     Size: 15,
-    //     Owner: "Michel",
-    //     AppraisedValue: 800,
-    //   },
-    // ];
-    // for (const asset of assets) {
-    //   asset.docType = "asset";
-    //   // example of how to write to world state deterministically
-    //   // use convetion of alphabetic order
-    //   // we insert data in alphabetic order using 'json-stringify-deterministic' and 'sort-keys-recursive'
-    //   // when retrieving data, in any lang, the order of data will be the same and consequently also the corresonding hash
-    //   await ctx.stub.putState(
-    //     asset.ID,
-    //     Buffer.from(stringify(sortKeysRecursive(asset)))
-    //   );
-    //   console.info(`Asset ${asset.ID} initialized`);
-    // }
+  public async Init(ctx: Context): Promise<void> {
+    const isInitialized = await ctx.stub.getState(INIT_KEY);
+    console.info(
+      `Init: ${isInitialized.toString()}, typeof: ${typeof isInitialized.toString()}`
+    );
+    if (isInitialized.toString() !== "") {
+      throw new Error(`Init is already invoked: ${isInitialized}`);
+    }
+
+    const org = {
+      id: ctx.clientIdentity.getMSPID(),
+      access: WRITE | READ | DELETE,
+      users: [ctx.clientIdentity.getID()],
+    };
+    const user = {
+      id: ctx.clientIdentity.getID(),
+      access: WRITE | READ | DELETE,
+      orgId: ctx.clientIdentity.getMSPID(),
+    };
+    const orgKey = this.GetOrgKey(ctx, org.id);
+    await ctx.stub.putState(
+      orgKey,
+      Buffer.from(stringify(sortKeysRecursive(org)))
+    );
+    const userKey = this.GetUserKey(ctx, user.id);
+    await ctx.stub.putState(
+      userKey,
+      Buffer.from(stringify(sortKeysRecursive(user)))
+    );
+    console.info(`Org ${JSON.stringify(org)} initialized`);
+    console.info(`User ${JSON.stringify(user)} initialized`);
+    await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify([org.id])));
+    await ctx.stub.putState(ADMIN_ORG_KEY, Buffer.from(stringify([org.id])));
+    await ctx.stub.putState(INIT_KEY, Buffer.from("initialized"));
+  }
+  GetOrgKey(ctx: Context, orgId: string): string {
+    return ctx.stub.createCompositeKey(orgPrefix, [orgId]);
+  }
+  GetUserKey(ctx: Context, userId: string): string {
+    return ctx.stub.createCompositeKey(userPrefix, [userId]);
+  }
+  @Transaction()
+  async AddOrg(ctx: Context, orgId: string, access: number): Promise<void> {
+    const isAdmin = await this.IsAdmin(ctx);
+    if (!isAdmin) {
+      throw new Error(`Only admin can execute this function`);
+    }
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const exists = await this.OrgExists(ctx, orgKey);
+    if (exists) {
+      throw new Error(`The Org ${orgId} exists`);
+    }
+
+    const org = {
+      id: orgId,
+      access: access,
+      users: [],
+    };
+    await ctx.stub.putState(
+      orgKey,
+      Buffer.from(stringify(sortKeysRecursive(org)))
+    );
+
+    // Update `orgIds`
+    const orgIds = await this.GetContentByKey(ctx, ALL_ORG_KEY);
+    orgIds.push(org.id);
+    await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify(orgIds)));
   }
 
-  // // CreateAsset issues a new asset to the world state with given details.
-  // @Transaction()
-  // public async CreateAsset(
-  //   ctx: Context,
-  //   id: string,
-  //   color: string,
-  //   size: number,
-  //   owner: string,
-  //   appraisedValue: number
-  // ): Promise<void> {
-  //   const exists = await this.AssetExists(ctx, id);
-  //   if (exists) {
-  //     throw new Error(`The asset ${id} already exists`);
-  //   }
-  //   const asset = {
-  //     ID: id,
-  //     Color: color,
-  //     Size: size,
-  //     Owner: owner,
-  //     AppraisedValue: appraisedValue,
-  //   };
-  //   // we insert data in alphabetic order using 'json-stringify-deterministic' and 'sort-keys-recursive'
-  //   await ctx.stub.putState(
-  //     id,
-  //     Buffer.from(stringify(sortKeysRecursive(asset)))
-  //   );
-  // }
-  // // ReadAsset returns the asset stored in the world state with given id.
-  // @Transaction(false)
-  // public async ReadAsset(ctx: Context, id: string): Promise<string> {
-  //     const assetJSON = await ctx.stub.getState(id); // get the asset from chaincode state
-  //     if (!assetJSON || assetJSON.length === 0) {
-  //         throw new Error(`The asset ${id} does not exist`);
-  //     }
-  //     return assetJSON.toString();
-  // }
-  // // UpdateAsset updates an existing asset in the world state with provided parameters.
-  // @Transaction()
-  // public async UpdateAsset(ctx: Context, id: string, color: string, size: number, owner: string, appraisedValue: number): Promise<void> {
-  //     const exists = await this.AssetExists(ctx, id);
-  //     if (!exists) {
-  //         throw new Error(`The asset ${id} does not exist`);
-  //     }
-  //     // overwriting original asset with new asset
-  //     const updatedAsset = {
-  //         ID: id,
-  //         Color: color,
-  //         Size: size,
-  //         Owner: owner,
-  //         AppraisedValue: appraisedValue,
-  //     };
-  //     // we insert data in alphabetic order using 'json-stringify-deterministic' and 'sort-keys-recursive'
-  //     return ctx.stub.putState(id, Buffer.from(stringify(sortKeysRecursive(updatedAsset))));
-  // }
-  // // DeleteAsset deletes an given asset from the world state.
-  // @Transaction()
-  // public async DeleteAsset(ctx: Context, id: string): Promise<void> {
-  //     const exists = await this.AssetExists(ctx, id);
-  //     if (!exists) {
-  //         throw new Error(`The asset ${id} does not exist`);
-  //     }
-  //     return ctx.stub.deleteState(id);
-  // }
-  // // AssetExists returns true when asset with given ID exists in world state.
+  @Transaction()
+  async RemoveOrg(ctx: Context, orgId: string): Promise<void> {
+    const isAdmin = await this.IsAdmin(ctx);
+    if (!isAdmin) {
+      throw new Error(`Only admin can execute this function`);
+    }
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const exists = await this.OrgExists(ctx, orgKey);
+    if (!exists) {
+      throw new Error(`The Org ${orgId} does not exists`);
+    }
+    const _orgIds = await ctx.stub.getState(ALL_ORG_KEY);
+    const orgIds = JSON.parse(_orgIds.toString());
+    const index = orgIds.indexOf(orgId);
+    orgIds.splice(index, 1);
+    await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify(orgIds)));
+
+    return ctx.stub.deleteState(orgKey);
+  }
+
+  @Transaction(false)
+  @Returns("string")
+  async ReadAllOrgKeys(ctx: Context): Promise<string> {
+    const _orgIds = await ctx.stub.getState(ALL_ORG_KEY);
+    return _orgIds.toString();
+  }
+
+  @Transaction(false)
+  async IsAdmin(ctx: Context): Promise<boolean> {
+    const _ADMINS = await ctx.stub.getState(ADMIN_ORG_KEY);
+    const ADMINS = JSON.parse(_ADMINS.toString());
+    if (ADMINS.includes(ctx.clientIdentity.getMSPID())) {
+      return true;
+    }
+    return false;
+  }
+  @Transaction(false)
+  async IsOrgOwner(ctx: Context): Promise<boolean> {
+    return true;
+  }
+  @Transaction()
+  async AddUser(ctx: Context, userId: string, access: number): Promise<void> {
+    // if (!this.IsOrgOwner(ctx, orgId)) {
+    //   throw new Error(`This ${orgId} has no permission to remove user`);
+    // }
+  }
+  @Transaction()
+  async RemoveUser(ctx: Context, orgId: string, userId: string): Promise<void> {
+    // if (!this.IsOrgOwner(ctx, orgId)) {
+    //   throw new Error(`This ${orgId} has no permission to remove user`);
+    // }
+  }
+  @Transaction(false)
+  @Returns("string")
+  public async ReadOrg(ctx: Context, orgId: string): Promise<string> {
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const orgJSON = await ctx.stub.getState(orgKey);
+    if (!orgJSON || orgJSON.length === 0) {
+      throw new Error(`The org ${orgId} does not exist`);
+    }
+    return orgJSON.toString();
+  }
+  @Transaction(false)
+  public async ReadAllOrgs(ctx: Context): Promise<Array<string>> {
+    const orgIds = await this.GetContentByKey(ctx, ALL_ORG_KEY);
+    console.info(`ReadAllOrgs: `, orgIds);
+    const orgs = [];
+    for (const orgId of orgIds) {
+      const org = await this.ReadOrg(ctx, orgId);
+      orgs.push(org);
+    }
+    return orgs;
+  }
   @Transaction(false)
   @Returns("boolean")
   public async OrgExists(ctx: Context, id: string): Promise<boolean> {
     const orgJSON = await ctx.stub.getState(id);
-    console.log("orgJSON: ", orgJSON);
+    console.info("orgJSON: ", orgJSON.toString());
     return orgJSON && orgJSON.length > 0;
   }
-  // // TransferAsset updates the owner field of asset with given id in the world state, and returns the old owner.
-  // @Transaction()
-  // public async TransferAsset(ctx: Context, id: string, newOwner: string): Promise<string> {
-  //     const assetString = await this.ReadAsset(ctx, id);
-  //     const asset = JSON.parse(assetString);
-  //     const oldOwner = asset.Owner;
-  //     asset.Owner = newOwner;
-  //     // we insert data in alphabetic order using 'json-stringify-deterministic' and 'sort-keys-recursive'
-  //     await ctx.stub.putState(id, Buffer.from(stringify(sortKeysRecursive(asset))));
-  //     return oldOwner;
-  // }
-  // // GetAllAssets returns all assets found in the world state.
-  // @Transaction(false)
-  // @Returns('string')
-  // public async GetAllAssets(ctx: Context): Promise<string> {
-  //     const allResults = [];
-  //     // range query with empty string for startKey and endKey does an open-ended query of all assets in the chaincode namespace.
-  //     const iterator = await ctx.stub.getStateByRange('', '');
-  //     let result = await iterator.next();
-  //     while (!result.done) {
-  //         const strValue = Buffer.from(result.value.value.toString()).toString('utf8');
-  //         let record;
-  //         try {
-  //             record = JSON.parse(strValue);
-  //         } catch (err) {
-  //             console.log(err);
-  //             record = strValue;
-  //         }
-  //         allResults.push(record);
-  //         result = await iterator.next();
-  //     }
-  //     return JSON.stringify(allResults);
-  // }
+  async GetContentByKey(ctx: Context, key: string): Promise<any> {
+    const _content = await ctx.stub.getState(key);
+    const content = JSON.parse(_content.toString());
+    return content;
+  }
+
+  @Transaction(false)
+  @Returns("number")
+  public async CheckOrgAccess(ctx: Context, orgId: string): Promise<number> {
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const org = await this.GetContentByKey(ctx, orgKey);
+    return org.access;
+  }
+  @Transaction()
+  public async UpdateOrgAccess(
+    ctx: Context,
+    orgId: string,
+    access: number
+  ): Promise<void> {
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const org = await this.GetContentByKey(ctx, orgKey);
+    org.access = access;
+    await ctx.stub.putState(
+      orgKey,
+      Buffer.from(stringify(sortKeysRecursive(org)))
+    );
+  }
 }

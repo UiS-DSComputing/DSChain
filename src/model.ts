@@ -9,17 +9,15 @@ export class Org {
   @Property()
   public id: string;
   @Property()
-  public name: string;
-  @Property()
   public access: number;
+  @Property()
+  public users: Array<string>;
 }
 
 @Object()
 export class User {
   @Property()
   public id: string;
-  @Property()
-  public name: string;
   @Property()
   public access: number;
   @Property()

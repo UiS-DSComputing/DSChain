@@ -1,5 +1,6 @@
 #!/bin/bash
 
+set -e
 export NAME=$1
 export VERSION=1
 export SEQ=1
@@ -7,6 +8,7 @@ export SEQ=1
 LABEL="${NAME}_${VERSION}"
 
 echo 'bulid ...'
+rm -rf dist
 yarn build
 mkdir -p build
 
@@ -24,6 +26,7 @@ peer lifecycle chaincode queryinstalled
 echo "extract CC_PACKAGE_ID"
 CC_PACKAGE_ID=`peer lifecycle chaincode queryinstalled --output json | jq -r --arg LABEL "$LABEL" '.installed_chaincodes | to_entries | map(select(.value.label == $LABEL)) | map(.value)[0].package_id'`
 echo $CC_PACKAGE_ID
+[[ "$CC_PACKAGE_ID" == "null" ]] && exit 1
 
 echo "approve for my org ..."
 source $FABRIC_HOME/test-network/peer1-env.sh
