@@ -139,18 +139,6 @@ export class UisControllerContract extends Contract {
   async IsOrgOwner(ctx: Context): Promise<boolean> {
     return true;
   }
-  @Transaction()
-  async AddUser(ctx: Context, userId: string, access: number): Promise<void> {
-    // if (!this.IsOrgOwner(ctx, orgId)) {
-    //   throw new Error(`This ${orgId} has no permission to remove user`);
-    // }
-  }
-  @Transaction()
-  async RemoveUser(ctx: Context, orgId: string, userId: string): Promise<void> {
-    // if (!this.IsOrgOwner(ctx, orgId)) {
-    //   throw new Error(`This ${orgId} has no permission to remove user`);
-    // }
-  }
   @Transaction(false)
   @Returns("string")
   public async ReadOrg(ctx: Context, orgId: string): Promise<string> {
@@ -199,11 +187,28 @@ export class UisControllerContract extends Contract {
     access: number
   ): Promise<void> {
     const orgKey = this.GetOrgKey(ctx, orgId);
+    const exists = await OrgExists(ctx, orgKey);
+    if (!exists) {
+      throw new Error(`The Org ${orgId} does not exists`);
+    }
     const org = await this.GetContentByKey(ctx, orgKey);
     org.access = access;
     await ctx.stub.putState(
       orgKey,
       Buffer.from(stringify(sortKeysRecursive(org)))
     );
+  }
+
+  @Transaction()
+  async AddUser(ctx: Context, userId: string, access: number): Promise<void> {
+    // if (!this.IsOrgOwner(ctx, orgId)) {
+    //   throw new Error(`This ${orgId} has no permission to remove user`);
+    // }
+  }
+  @Transaction()
+  async RemoveUser(ctx: Context, orgId: string, userId: string): Promise<void> {
+    // if (!this.IsOrgOwner(ctx, orgId)) {
+    //   throw new Error(`This ${orgId} has no permission to remove user`);
+    // }
   }
 }

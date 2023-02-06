@@ -103,22 +103,37 @@ async function main(): Promise<void> {
     const contract = network.getContract(chaincodeName);
 
     // // Initialize a set of asset data on the ledger using the chaincode 'InitLedger' function.
-    await init(contract);
-
+    try {
+      await init(contract);
+    } catch (e) {}
     // // Return all the current assets on the ledger.
-    // await getAllAssets(contract);
+    await readAllOrgs(contract);
 
-    // // Create a new asset on the ledger.
-    // await createAsset(contract);
+    try {
+      await readOrg(contract, "Org1MSP");
+    } catch (e) {}
 
-    // // Update an existing asset asynchronously.
-    // await transferAssetAsync(contract);
+    try {
+      await readOrg(contract, "Org2MSP");
+    } catch (e) {}
 
-    // // Get the asset details by assetID.
-    // await readAssetByID(contract);
-
-    // // Update an asset which does not exist.
-    // await updateNonExistentAsset(contract);
+    // Access
+    const WRITE = 0x001;
+    const READ = 0x010;
+    const DELETE = 0x100;
+    try {
+      await updateOrgAccess(contract, "Org2MSP", WRITE | READ);
+    } catch (e) {}
+    await readAllOrgs(contract);
+    await readAllOrgKeys(contract);
+    await addOrg(contract, "Org2MSP", WRITE);
+    await readAllOrgKeys(contract);
+    try {
+      await updateOrgAccess(contract, "Org2MSP", WRITE | READ);
+    } catch (e) {}
+    await readAllOrgs(contract);
+    await removeOrg(contract, "Org2MSP");
+    await readAllOrgs(contract);
   } finally {
     gateway.close();
     client.close();
@@ -156,7 +171,7 @@ async function newSigner(): Promise<Signer> {
  * initial deployment. A new version of the chaincode deployed later would likely not need to run an "init" function.
  */
 async function init(contract: Contract): Promise<void> {
-  console.log("\n--> Submit Transaction: Init ");
+  console.log("\n--> Init");
 
   // await contract.submitTransaction("InitLedger");
   await contract.submitTransaction("Init");
@@ -164,108 +179,74 @@ async function init(contract: Contract): Promise<void> {
   console.log("*** Transaction committed successfully");
 }
 
-// /**
-//  * Evaluate a transaction to query ledger state.
-//  */
-// async function getAllAssets(contract: Contract): Promise<void> {
-//   console.log(
-//     "\n--> Evaluate Transaction: GetAllAssets, function returns all the current assets on the ledger"
-//   );
-
-//   const resultBytes = await contract.evaluateTransaction("GetAllAssets");
-
-//   const resultJson = utf8Decoder.decode(resultBytes);
-//   const result = JSON.parse(resultJson);
-//   console.log("*** Result:", result);
-// }
-
-// /**
-//  * Submit a transaction synchronously, blocking until it has been committed to the ledger.
-//  */
-// async function createAsset(contract: Contract): Promise<void> {
-//   console.log(
-//     "\n--> Submit Transaction: CreateAsset, creates new asset with ID, Color, Size, Owner and AppraisedValue arguments"
-//   );
-
-//   await contract.submitTransaction(
-//     "CreateAsset",
-//     assetId,
-//     "yellow",
-//     "5",
-//     "Tom",
-//     "1300"
-//   );
-
-//   console.log("*** Transaction committed successfully");
-// }
-
-// /**
-//  * Submit transaction asynchronously, allowing the application to process the smart contract response (e.g. update a UI)
-//  * while waiting for the commit notification.
-//  */
-// async function transferAssetAsync(contract: Contract): Promise<void> {
-//   console.log(
-//     "\n--> Async Submit Transaction: TransferAsset, updates existing asset owner"
-//   );
-
-//   const commit = await contract.submitAsync("TransferAsset", {
-//     arguments: [assetId, "Saptha"],
-//   });
-//   const oldOwner = utf8Decoder.decode(commit.getResult());
-
-//   console.log(
-//     `*** Successfully submitted transaction to transfer ownership from ${oldOwner} to Saptha`
-//   );
-//   console.log("*** Waiting for transaction commit");
-
-//   const status = await commit.getStatus();
-//   if (!status.successful) {
-//     throw new Error(
-//       `Transaction ${status.transactionId} failed to commit with status code ${status.code}`
-//     );
-//   }
-
-//   console.log("*** Transaction committed successfully");
-// }
-
-// async function readAssetByID(contract: Contract): Promise<void> {
-//   console.log(
-//     "\n--> Evaluate Transaction: ReadAsset, function returns asset attributes"
-//   );
-
-//   const resultBytes = await contract.evaluateTransaction("ReadAsset", assetId);
-
-//   const resultJson = utf8Decoder.decode(resultBytes);
-//   const result = JSON.parse(resultJson);
-//   console.log("*** Result:", result);
-// }
-
-// /**
-//  * submitTransaction() will throw an error containing details of any error responses from the smart contract.
-//  */
-// async function updateNonExistentAsset(contract: Contract): Promise<void> {
-//   console.log(
-//     "\n--> Submit Transaction: UpdateAsset asset70, asset70 does not exist and should return an error"
-//   );
-
-//   try {
-//     await contract.submitTransaction(
-//       "UpdateAsset",
-//       "asset70",
-//       "blue",
-//       "5",
-//       "Tomoko",
-//       "300"
-//     );
-//     console.log("******** FAILED to return an error");
-//   } catch (error) {
-//     console.log("*** Successfully caught the error: \n", error);
-//   }
-// }
-
 /**
- * envOrDefault() will return the value of an environment variable, or a default value if the variable is undefined.
+ * Evaluate a transaction to query ledger state.
  */
+async function readAllOrgs(contract: Contract): Promise<void> {
+  console.log("\n--> ReadAllOrgs");
+
+  const resultBytes = await contract.evaluateTransaction("ReadAllOrgs");
+
+  const resultJson = utf8Decoder.decode(resultBytes);
+  const result = JSON.parse(resultJson);
+  console.log("*** Result:", result);
+}
+
+async function readOrg(contract: Contract, orgId: string): Promise<void> {
+  console.log("\n--> ReadOrg");
+  const resultBytes = await contract.evaluateTransaction("ReadOrg", orgId);
+  const resultJson = utf8Decoder.decode(resultBytes);
+  console.log("*** Result:", resultJson);
+}
+
+async function isAdmin(contract: Contract): Promise<void> {
+  console.log("\n--> ReadOrg");
+  const resultBytes = await contract.evaluateTransaction("IsAdmin");
+  const resultJson = utf8Decoder.decode(resultBytes);
+  console.log("*** Result:", resultJson);
+}
+
+async function checkOrgAccess(
+  contract: Contract,
+  orgId: string
+): Promise<void> {
+  console.log("\n--> CheckOrgAccess");
+  const resultBytes = await contract.evaluateTransaction(
+    "checkOrgAccess",
+    orgId
+  );
+  const resultJson = utf8Decoder.decode(resultBytes);
+  console.log("*** Result:", resultJson);
+}
+
+async function updateOrgAccess(
+  contract: Contract,
+  orgId: string,
+  access: number
+): Promise<void> {
+  console.log("\n--> UpdateOrgAccess");
+  await contract.submitTransaction("UpdateOrgAccess", orgId, `${access}`);
+}
+
+async function addOrg(
+  contract: Contract,
+  orgId: string,
+  access: number
+): Promise<void> {
+  console.log("\n--> AddOrg");
+  await contract.submitTransaction("AddOrg", orgId, `${access}`);
+}
+async function removeOrg(contract: Contract, orgId: string): Promise<void> {
+  console.log("\n--> RemoveOrg");
+  await contract.submitTransaction("RemoveOrg", orgId);
+}
+async function readAllOrgKeys(contract: Contract): Promise<void> {
+  console.log("\n--> ReadAllOrgKeys");
+  const resultBytes = await contract.evaluateTransaction("ReadAllOrgKeys");
+  const resultJson = utf8Decoder.decode(resultBytes);
+  console.log("*** Result:", resultJson);
+}
+
 function envOrDefault(key: string, defaultValue: string): string {
   return process.env[key] || defaultValue;
 }
