@@ -11,7 +11,7 @@ import {
 } from "fabric-contract-api";
 import stringify from "json-stringify-deterministic";
 import sortKeysRecursive from "sort-keys-recursive";
-import { User, Org } from "./model";
+import { Org } from "./model";
 
 // Access
 const WRITE = 0x001;
@@ -44,23 +44,14 @@ export class UisControllerContract extends Contract {
       access: WRITE | READ | DELETE,
       users: [ctx.clientIdentity.getID()],
     };
-    // const user = {
-    //   id: ctx.clientIdentity.getID(),
-    //   access: WRITE | READ | DELETE,
-    //   orgId: ctx.clientIdentity.getMSPID(),
-    // };
+
     const orgKey = this.GetOrgKey(ctx, org.id);
     await ctx.stub.putState(
       orgKey,
       Buffer.from(stringify(sortKeysRecursive(org)))
     );
     console.info(`Org ${JSON.stringify(org)} initialized`);
-    // const userKey = this.GetUserKey(ctx, user.id);
-    // await ctx.stub.putState(
-    //   userKey,
-    //   Buffer.from(stringify(sortKeysRecursive(user)))
-    // );
-    // console.info(`User ${JSON.stringify(user)} initialized`);
+
     await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify([org.id])));
     await ctx.stub.putState(ADMIN_ORG_KEY, Buffer.from(stringify([org.id])));
     await ctx.stub.putState(INIT_KEY, Buffer.from("initialized"));
