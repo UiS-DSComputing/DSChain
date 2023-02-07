@@ -101,7 +101,7 @@ export class UisControllerContract extends Contract {
     if (!exists) {
       throw new Error(`The Org ${orgId} does not exists`);
     }
-    const orgIds = await this.GetContentByKey(ALL_ORG_KEY);
+    const orgIds = await this.GetContentByKey(ctx, ALL_ORG_KEY);
     const index = orgIds.indexOf(orgId);
     orgIds.splice(index, 1);
     await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify(orgIds)));
@@ -118,7 +118,7 @@ export class UisControllerContract extends Contract {
 
   @Transaction(false)
   async IsAdmin(ctx: Context): Promise<boolean> {
-    const ADMINS = await this.GetContentByKey(ADMIN_ORG_KEY);
+    const ADMINS = await this.GetContentByKey(ctx, ADMIN_ORG_KEY);
     if (ADMINS.includes(ctx.clientIdentity.getMSPID())) {
       return true;
     }
@@ -176,7 +176,7 @@ export class UisControllerContract extends Contract {
     access: number
   ): Promise<void> {
     const orgKey = this.GetOrgKey(ctx, orgId);
-    const exists = await OrgExists(ctx, orgKey);
+    const exists = await this.OrgExists(ctx, orgKey);
     if (!exists) {
       throw new Error(`The Org ${orgId} does not exists`);
     }
@@ -191,13 +191,13 @@ export class UisControllerContract extends Contract {
   @Transaction()
   async AddUser(ctx: Context, userId: string, access: number): Promise<void> {
     const orgId = ctx.clientIdentity.getMSPID();
-    const orgKey = this.GetOrgKey(orgId);
-    const exists = await OrgExists(ctx, orgKey);
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const exists = await this.OrgExists(ctx, orgKey);
     if (!exists) {
       throw new Error(`The Org ${orgId} does not exists`);
     }
     const org = await this.GetContentByKey(ctx, orgKey);
-    org.users.push(ctx.stub.clientIdentity.getID());
+    org.users.push(ctx.clientIdentity.getID());
     await ctx.stub.putState(
       orgKey,
       Buffer.from(stringify(sortKeysRecursive(org)))
@@ -207,8 +207,8 @@ export class UisControllerContract extends Contract {
   @Transaction()
   async RemoveUser(ctx: Context, userId: string): Promise<void> {
     const orgId = ctx.clientIdentity.getMSPID();
-    const orgKey = this.GetOrgKey(orgId);
-    const exists = await OrgExists(ctx, orgKey);
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const exists = await this.OrgExists(ctx, orgKey);
     if (!exists) {
       throw new Error(`The Org ${orgId} does not exists`);
     }
@@ -221,5 +221,21 @@ export class UisControllerContract extends Contract {
         Buffer.from(stringify(sortKeysRecursive(org)))
       );
     }
+  }
+  @Transaction(false)
+  @Returns("number")
+  async CheckUserAccess(
+    ctx: Context,
+    orgId: string,
+    userId: string
+  ): Promise<number> {
+    const orgKey = this.GetOrgKey(ctx, orgId);
+    const org = await this.GetContentByKey(ctx, orgKey);
+    const index = org.users.indexOf(userId);
+    if (index >= 0) {
+      return org.access;
+    }
+    // No Permission
+    return 0;
   }
 }
