@@ -6,7 +6,7 @@ Make sure you follow the tutorial provided by fabric
 
     ./restart.sh
 
-## Some environemnt variable in $HOME/.bashrc or $HOME/.zshrc
+## Some environment variable in $HOME/.bashrc or $HOME/.zshrc
 
     export FABRIC_HOME=<path to the fabric-samples>
     export PATH=$FABRIC_HOME/bin:$PATH
