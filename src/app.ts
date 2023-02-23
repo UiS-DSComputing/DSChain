@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as dotenv from "dotenv";
+dotenv.config();
+
+import express, { Express, Request, Response } from "express";
+
 import * as grpc from "@grpc/grpc-js";
 import {
   connect,
@@ -17,251 +22,256 @@ import { promises as fs } from "fs";
 import * as path from "path";
 import { TextDecoder } from "util";
 
-const channelName = envOrDefault("CHANNEL_NAME", "mychannel");
-const chaincodeName = envOrDefault("CHAINCODE_NAME", "t8");
-const mspId = envOrDefault("MSP_ID", "Org1MSP");
-
-// Path to crypto materials.
-const cryptoPath = envOrDefault(
-  "CRYPTO_PATH",
-  path.resolve(
-    __dirname,
-    "..",
-    "..",
-    "test-network",
-    "organizations",
-    "peerOrganizations",
-    "org1.example.com"
-  )
-);
-console.log("cryptoPath: ", cryptoPath);
-// Path to user private key directory.
-const keyDirectoryPath = envOrDefault(
-  "KEY_DIRECTORY_PATH",
-  path.resolve(cryptoPath, "users", "User1@org1.example.com", "msp", "keystore")
-);
-console.log("keyDirectoryPath: ", keyDirectoryPath);
-// Path to user certificate.
-const certPath = envOrDefault(
-  "CERT_PATH",
-  path.resolve(
-    cryptoPath,
-    "users",
-    "User1@org1.example.com",
-    "msp",
-    "signcerts",
-    "User1@org1.example.com-cert.pem"
-  )
-);
-console.log("certPath: ", certPath);
-
-// Path to peer tls certificate.
-const tlsCertPath = envOrDefault(
-  "TLS_CERT_PATH",
-  path.resolve(cryptoPath, "peers", "peer0.org1.example.com", "tls", "ca.crt")
-);
-console.log("tlsCertPath: ", tlsCertPath);
-// Gateway peer endpoint.
-const peerEndpoint = envOrDefault("PEER_ENDPOINT", "localhost:7051");
-
-// Gateway peer SSL host name override.
-const peerHostAlias = envOrDefault("PEER_HOST_ALIAS", "peer0.org1.example.com");
-
 const utf8Decoder = new TextDecoder();
-const assetId = `asset${Date.now()}`;
 
-async function main(): Promise<void> {
-  await displayInputParameters();
+const WRITE = 0x001;
+const READ = 0x010;
+const DELETE = 0x100;
 
-  // The gRPC client connection should be shared by all Gateway connections to this endpoint.
-  const client = await newGrpcConnection();
+class Controller {
+  channelName: string = envOrDefault("CHANNEL_NAME", "mychannel");
+  chaincodeName: string = envOrDefault("CHAINCODE_NAME", "test");
+  mspId: string= envOrDefault("MSP_ID", "Org1MSP");
+  cryptoPath: string = envOrDefault(
+    "CRYPTO_PATH",
+    path.resolve(__dirname,
+                 "..",
+                 "..",
+                 "test-network",
+                 "organizations",
+                 "peerOrganizations",
+                 "org1.example.com"
+                ));
+  keyDirectoryPath: string = envOrDefault(
+    "KEY_DIRECTORY_PATH",
+    path.resolve(this.cryptoPath, "users", "User1@org1.example.com", "msp", "keystore"));
+  // Path to user certificate.
+  certPath: string = envOrDefault(
+    "CERT_PATH",
+    path.resolve(this.cryptoPath,
+                 "users",
+                 "User1@org1.example.com",
+                 "msp",
+                 "signcerts",
+                 "User1@org1.example.com-cert.pem"
+                ));
+  // Path to peer tls certificate.
+  tlsCertPath: string = envOrDefault(
+    "TLS_CERT_PATH",
+    path.resolve(this.cryptoPath, "peers", "peer0.org1.example.com", "tls", "ca.crt")
+  );
+  // Gateway peer endpoint.
+  peerEndpoint: string = envOrDefault("PEER_ENDPOINT", "localhost:7051");
+  // Gateway peer SSL host name override.
+  peerHostAlias: string = envOrDefault("PEER_HOST_ALIAS", "peer0.org1.example.com");
 
-  const gateway = connect({
-    client,
-    identity: await newIdentity(),
-    signer: await newSigner(),
-    // Default timeouts for different gRPC calls
-    evaluateOptions: () => {
-      return { deadline: Date.now() + 5000 }; // 5 seconds
-    },
-    endorseOptions: () => {
-      return { deadline: Date.now() + 15000 }; // 15 seconds
-    },
-    submitOptions: () => {
-      return { deadline: Date.now() + 5000 }; // 5 seconds
-    },
-    commitStatusOptions: () => {
-      return { deadline: Date.now() + 60000 }; // 1 minute
-    },
-  });
+  contract: Contract | undefined | null;
+  constructor() {
+  }
 
-  try {
+  async getInputParameters() {
+    return {
+      channelName: this.channelName,
+      chaincodeName: this.chaincodeName,
+      cryptoPath: this.cryptoPath,
+      keyDirectoryPath: this.keyDirectoryPath,
+      certPath: this.certPath,
+      tlsCertPath: this.tlsCertPath,
+      peerEndpoint: this.peerEndpoint,
+      peerHostAlias: this.peerHostAlias,
+    };
+  }
+  async newGrpcConnection(): Promise<grpc.Client> {
+    const tlsRootCert = await fs.readFile(this.tlsCertPath);
+    const tlsCredentials = grpc.credentials.createSsl(tlsRootCert);
+    return new grpc.Client(this.peerEndpoint, tlsCredentials, {
+      "grpc.ssl_target_name_override": this.peerHostAlias,
+    });
+  }
+  async newIdentity(): Promise<Identity> {
+    const credentials = await fs.readFile(this.certPath);
+    return { mspId: this.mspId, credentials };
+  }
+  async newSigner(): Promise<Signer> {
+    const files = await fs.readdir(this.keyDirectoryPath);
+    const keyPath = path.resolve(this.keyDirectoryPath, files[0]);
+    const privateKeyPem = await fs.readFile(keyPath);
+    const privateKey = crypto.createPrivateKey(privateKeyPem);
+    return signers.newPrivateKeySigner(privateKey);
+  }
+  async init() {
+    const client = await this.newGrpcConnection();
+
+    const gateway = connect({
+      client,
+      identity: await this.newIdentity(),
+      signer: await this.newSigner(),
+      // Default timeouts for different gRPC calls
+      evaluateOptions: () => {
+        return { deadline: Date.now() + 5000 }; // 5 seconds
+      },
+      endorseOptions: () => {
+        return { deadline: Date.now() + 15000 }; // 15 seconds
+      },
+      submitOptions: () => {
+        return { deadline: Date.now() + 5000 }; // 5 seconds
+      },
+      commitStatusOptions: () => {
+        return { deadline: Date.now() + 60000 }; // 1 minute
+      },
+    });
+
     // Get a network instance representing the channel where the smart contract is deployed.
-    const network = gateway.getNetwork(channelName);
+    const network = gateway.getNetwork(this.channelName);
 
     // Get the smart contract from the network.
-    const contract = network.getContract(chaincodeName);
+    this.contract = network.getContract(this.chaincodeName);
+    return this.contract;
+  }
 
-    // // Initialize a set of asset data on the ledger using the chaincode 'InitLedger' function.
-    try {
-      await init(contract);
-    } catch (e) {}
-    // // Return all the current assets on the ledger.
-    await readAllOrgs(contract);
+  toJson(payload: string) {
+    return JSON.parse(payload);
+  }
 
-    try {
-      await readOrg(contract, "Org1MSP");
-    } catch (e) {}
+  async contractCall(funcName: string, args: Array<any>) {
+    await this.contract?.submitTransaction(funcName, ...args);
+  }
+  async contractQuery(funcName: string, args: Array<any>) {
+    const resultBytes = await this.contract?.evaluateTransaction(funcName, ...args);
+    const resultJson = utf8Decoder.decode(resultBytes);
+    console.log(`${funcName}: ${resultJson}`);
+    return this.toJson(resultJson);
+  }
 
-    try {
-      await readOrg(contract, "Org2MSP");
-    } catch (e) {}
+  // WRITE
+  async Init(): Promise<void> {
+    await this.contract?.submitTransaction("Init");
+  }
 
-    // Access
-    const WRITE = 0x001;
-    const READ = 0x010;
-    const DELETE = 0x100;
-    try {
-      await updateOrgAccess(contract, "Org2MSP", WRITE | READ);
-    } catch (e) {}
-    await readAllOrgs(contract);
-    await readAllOrgKeys(contract);
-    await addOrg(contract, "Org2MSP", WRITE);
-    await readAllOrgKeys(contract);
-    try {
-      await updateOrgAccess(contract, "Org2MSP", WRITE | READ);
-    } catch (e) {}
-    await readAllOrgs(contract);
-    await removeOrg(contract, "Org2MSP");
-    await readAllOrgs(contract);
-  } finally {
-    gateway.close();
-    client.close();
+  async UpdateOrgAccess(
+    orgId: string,
+    access: number
+  ): Promise<void> {
+    await this.contract?.submitTransaction("UpdateOrgAccess", orgId, `${access}`);
+  }
+
+  async AddOrg(
+    orgId: string,
+    access: number
+  ): Promise<void> {
+    await this.contract?.submitTransaction("AddOrg", orgId, `${access}`);
+  }
+  async RemoveOrg(orgId: string): Promise<void> {
+    await this.contract?.submitTransaction("RemoveOrg", orgId);
+  }
+  // READ
+  async ReadAllOrgs(): Promise<any> {
+    const resultBytes = await this.contract?.evaluateTransaction("ReadAllOrgs");
+    const resultJson = utf8Decoder.decode(resultBytes);
+    return this.toJson(resultJson);
+  }
+
+  async ReadOrg(orgId: string): Promise<any> {
+    const resultBytes = await this.contract?.evaluateTransaction("ReadOrg", orgId);
+    const resultJson = utf8Decoder.decode(resultBytes);
+    return this.toJson(resultJson);
+  }
+
+  async IsAdmin(): Promise<any> {
+    const resultBytes = await this.contract?.evaluateTransaction("IsAdmin");
+    const resultJson = utf8Decoder.decode(resultBytes);
+    return this.toJson(resultJson);
+  }
+
+  async CheckOrgAccess(
+    orgId: string
+  ): Promise<any> {
+    const resultBytes = await this.contract?.evaluateTransaction(
+      "CheckOrgAccess",
+      orgId
+    );
+    const resultJson = utf8Decoder.decode(resultBytes);
+    return this.toJson(resultJson);
+  }
+
+  async CheckUserAccess(
+    orgId: string,
+    userId: string
+  ): Promise<any> {
+    const resultBytes = await this.contract?.evaluateTransaction(
+      "CheckUserAccess",
+      orgId,
+      userId,
+    );
+    const resultJson = utf8Decoder.decode(resultBytes);
+    return this.toJson(resultJson);
+  }
+
+  async ReadAllOrgKeys(): Promise<any> {
+    const resultBytes = await this.contract?.evaluateTransaction("ReadAllOrgKeys");
+    const resultJson = utf8Decoder.decode(resultBytes);
+    return this.toJson(resultJson);
   }
 }
 
-main().catch((error) => {
-  console.error("******** FAILED to run the application:", error);
-  process.exitCode = 1;
+const app: Express = express();
+const PORT = process.env.PORT || 18000;
+
+app.use(express.json());
+const controller = new Controller();
+
+app.listen(PORT, async () => {
+  await controller.init();
+  console.log(`Server is running at ::${PORT}`);
 });
 
-async function newGrpcConnection(): Promise<grpc.Client> {
-  const tlsRootCert = await fs.readFile(tlsCertPath);
-  const tlsCredentials = grpc.credentials.createSsl(tlsRootCert);
-  return new grpc.Client(peerEndpoint, tlsCredentials, {
-    "grpc.ssl_target_name_override": peerHostAlias,
-  });
-}
+app.get("/health", async (req, res) => {
+  try {
+    return res.json({status: 'success'});
+  } catch (err) {
+    return res.json({status: 'fail'});
+  }
+});
 
-async function newIdentity(): Promise<Identity> {
-  const credentials = await fs.readFile(certPath);
-  return { mspId, credentials };
-}
+app.get("/inputParameters", async (req, res) => {
+  try {
+    const ret = await controller.getInputParameters();
+    return res.json({status: 'success', ...ret});
+  } catch (err) {
+    return res.json({status: 'fail'});
+  }
+});
 
-async function newSigner(): Promise<Signer> {
-  const files = await fs.readdir(keyDirectoryPath);
-  const keyPath = path.resolve(keyDirectoryPath, files[0]);
-  const privateKeyPem = await fs.readFile(keyPath);
-  const privateKey = crypto.createPrivateKey(privateKeyPem);
-  return signers.newPrivateKeySigner(privateKey);
-}
+app.get('/contractQuery', async (req, res) => {
+  try {
+    const {funcName, args = []} = req.query;
+    console.log('funName:', funcName);
+    console.log('args:', args, typeof args);
+    // @ts-ignore
+    const ret = await controller.contractQuery(funcName as string, JSON.parse(args) as Array<any>);
+    const resp = {};
+    // @ts-ignore
+    resp[funcName] = ret;
+    return res.json({status: 'success', ...resp});
+  } catch (err) {
+    console.log(err);
+    return res.json({status: 'fail', msg: err?.details[0]?.message});
+  }
+});
 
-/**
- * This type of transaction would typically only be run once by an application the first time it was started after its
- * initial deployment. A new version of the chaincode deployed later would likely not need to run an "init" function.
- */
-async function init(contract: Contract): Promise<void> {
-  console.log("\n--> Init");
-
-  // await contract.submitTransaction("InitLedger");
-  await contract.submitTransaction("Init");
-
-  console.log("*** Transaction committed successfully");
-}
-
-/**
- * Evaluate a transaction to query ledger state.
- */
-async function readAllOrgs(contract: Contract): Promise<void> {
-  console.log("\n--> ReadAllOrgs");
-
-  const resultBytes = await contract.evaluateTransaction("ReadAllOrgs");
-
-  const resultJson = utf8Decoder.decode(resultBytes);
-  const result = JSON.parse(resultJson);
-  console.log("*** Result:", result);
-}
-
-async function readOrg(contract: Contract, orgId: string): Promise<void> {
-  console.log("\n--> ReadOrg");
-  const resultBytes = await contract.evaluateTransaction("ReadOrg", orgId);
-  const resultJson = utf8Decoder.decode(resultBytes);
-  console.log("*** Result:", resultJson);
-}
-
-async function isAdmin(contract: Contract): Promise<void> {
-  console.log("\n--> ReadOrg");
-  const resultBytes = await contract.evaluateTransaction("IsAdmin");
-  const resultJson = utf8Decoder.decode(resultBytes);
-  console.log("*** Result:", resultJson);
-}
-
-async function checkOrgAccess(
-  contract: Contract,
-  orgId: string
-): Promise<void> {
-  console.log("\n--> CheckOrgAccess");
-  const resultBytes = await contract.evaluateTransaction(
-    "checkOrgAccess",
-    orgId
-  );
-  const resultJson = utf8Decoder.decode(resultBytes);
-  console.log("*** Result:", resultJson);
-}
-
-async function updateOrgAccess(
-  contract: Contract,
-  orgId: string,
-  access: number
-): Promise<void> {
-  console.log("\n--> UpdateOrgAccess");
-  await contract.submitTransaction("UpdateOrgAccess", orgId, `${access}`);
-}
-
-async function addOrg(
-  contract: Contract,
-  orgId: string,
-  access: number
-): Promise<void> {
-  console.log("\n--> AddOrg");
-  await contract.submitTransaction("AddOrg", orgId, `${access}`);
-}
-async function removeOrg(contract: Contract, orgId: string): Promise<void> {
-  console.log("\n--> RemoveOrg");
-  await contract.submitTransaction("RemoveOrg", orgId);
-}
-async function readAllOrgKeys(contract: Contract): Promise<void> {
-  console.log("\n--> ReadAllOrgKeys");
-  const resultBytes = await contract.evaluateTransaction("ReadAllOrgKeys");
-  const resultJson = utf8Decoder.decode(resultBytes);
-  console.log("*** Result:", resultJson);
-}
-
+app.post('/contractCall', async (req, res) => {
+  try {
+    const {funcName, args = []} = req.body;
+    console.log('funName:', funcName);
+    console.log('args:', args, typeof args);
+    // @ts-ignore
+    await controller.contractCall(funcName as string, args as Array<string>);
+    return res.json({status: 'success'});
+  } catch (err) {
+    console.log(err);
+    return res.json({status: 'fail', msg: err?.details[0]?.message});
+  }
+});
 function envOrDefault(key: string, defaultValue: string): string {
   return process.env[key] || defaultValue;
-}
-
-/**
- * displayInputParameters() will print the global scope parameters used by the main driver routine.
- */
-async function displayInputParameters(): Promise<void> {
-  console.log(`channelName:       ${channelName}`);
-  console.log(`chaincodeName:     ${chaincodeName}`);
-  console.log(`mspId:             ${mspId}`);
-  console.log(`cryptoPath:        ${cryptoPath}`);
-  console.log(`keyDirectoryPath:  ${keyDirectoryPath}`);
-  console.log(`certPath:          ${certPath}`);
-  console.log(`tlsCertPath:       ${tlsCertPath}`);
-  console.log(`peerEndpoint:      ${peerEndpoint}`);
-  console.log(`peerHostAlias:     ${peerHostAlias}`);
 }
