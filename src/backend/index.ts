@@ -29,6 +29,7 @@ const METHOD_MAPPER: { [key: string]: string } = {
   transferOwnershipTo: "transferOwnershipTo",
   addOrg: "addOrg",
   owner: "owner",
+  queryAccessOnDataset: "queryAccessOnDataset",
 };
 
 class Controller {

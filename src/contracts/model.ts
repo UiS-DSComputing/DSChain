@@ -41,5 +41,5 @@ export class Org {
   @Property()
   public subs: { [key: string]: boolean }; // key = orgId
   @Property()
-  public datasets: { [key: string]: number }; // key = dataset, value = access
+  public datasets: { [key: string]: { access: number; expiredAt: number } }; // key = dataset, value = access
 }

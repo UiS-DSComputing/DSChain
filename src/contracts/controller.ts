@@ -1,7 +1,3 @@
-/*
- * SPDX-License-Identifier: Apache-2.0
- */
-// Deterministic JSON.stringify()
 import {
   Context,
   Contract,
@@ -13,12 +9,6 @@ import stringify from "json-stringify-deterministic";
 import sortKeysRecursive from "sort-keys-recursive";
 import { Org, User } from "./model";
 import * as Constants from "./constants";
-
-// const orgPrefix = "org";
-// const userPrefix = "user";
-// const ALL_ORG_KEY = "org-all";
-// const ADMIN_ORG_KEY = "org-admin";
-// const INIT_KEY = "init";
 
 @Info({
   title: "UisController",
@@ -101,7 +91,7 @@ export class UisControllerContract extends Contract {
       subs: {},
       datasets: {},
     } as Org;
-
+    JSON.stringify(org);
     await ctx.stub.putState(
       orgKey,
       Buffer.from(stringify(sortKeysRecursive(org)))
@@ -147,13 +137,14 @@ export class UisControllerContract extends Contract {
     ctx: Context,
     id: string,
     dataset: string,
-    access: number
+    access: number,
+    expiredAt: number
   ): Promise<void> {
     await this.onlyOwner(ctx);
     const orgKey = this.getOrgKey(ctx, id);
     const org = (await this.getObjectByKey(ctx, orgKey)) as Org;
     // Need consider permission inversion
-    org.datasets[dataset] = access;
+    org.datasets[dataset] = { access, expiredAt };
 
     await ctx.stub.putState(
       orgKey,
@@ -215,7 +206,8 @@ export class UisControllerContract extends Contract {
       user.phone = phone;
       user.orgs[orgId] = true;
     } catch (e) {
-      user = { id, name, email, phone, orgs: { orgId: true } } as User;
+      user = { id, name, email, phone } as User;
+      user.orgs[orgId] = true;
     }
 
     await ctx.stub.putState(
@@ -248,13 +240,13 @@ export class UisControllerContract extends Contract {
   @Transaction(false)
   @Returns("string")
   public async getUsers(ctx: Context, orgId: string): Promise<string> {
-    // if (ctx.clientIdentity.getMSPID() !== orgId) {
-    //   throw new Error("Only Org can view");
-    // }
+    if (ctx.clientIdentity.getMSPID() !== orgId) {
+      throw new Error("Only Org can view");
+    }
     const orgKey = this.getOrgKey(ctx, orgId);
     const org = await this.getObjectByKey(ctx, orgKey);
     const users = [];
-    for (const userId of org.users) {
+    for (const userId of Object.keys(org.users)) {
       const userKey = this.getUserKey(ctx, userId);
       const user = await this.getObjectByKey(ctx, userKey);
       if (user.orgs[orgId]) {
@@ -271,12 +263,15 @@ export class UisControllerContract extends Contract {
     orgId: string,
     userId: string
   ): Promise<string> {
-    // if (ctx.clientIdentity.getMSPID() !== orgId) {
-    //   throw new Error("Only Org can view");
-    // }
+    if (ctx.clientIdentity.getMSPID() !== orgId) {
+      throw new Error("Only Org can view");
+    }
     const userKey = this.getUserKey(ctx, userId);
     const user = await this.getObjectByKey(ctx, userKey);
-    return JSON.stringify(user);
+    if (user.orgs[orgId]) {
+      return JSON.stringify(user);
+    }
+    return "";
   }
 
   @Transaction()
@@ -291,6 +286,8 @@ export class UisControllerContract extends Contract {
     const org = await this.getObjectByKey(ctx, orgKey);
 
     org.pubs[channel] = true;
+    // orgId = 1
+    org.pubs["test"] = true;
 
     await ctx.stub.putState(
       orgKey,
@@ -298,24 +295,8 @@ export class UisControllerContract extends Contract {
     );
 
     // ////////////////////////////////////////////////////////////////////////////////
-    // let datasetToChannels = {};
-    // try {
-    //   datasetToChannels = await this.getObjectByKey(
-    //     ctx,
-    //     Constants.KEYS.DATASET_TO_CHANNELS
-    //   );
-    //   datasetToChannels[dataset].push(channel);
-    // } catch (e) {
-    //   datasetToChannels[dataset] = [channel];
-    // }
-
-    // await ctx.stub.putState(
-    //   Constants.KEYS.DATASET_TO_CHANNELS,
-    //   Buffer.from(stringify(sortKeysRecursive(datasetToChannels)))
-    // );
-
-    // ////////////////////////////////////////////////////////////////////////////////
-    let channelToPubs = {};
+    // { 'test': ['1', '2'] }
+    let channelToPubs: { [key: string]: Array<string> } = {};
     try {
       channelToPubs = await this.getObjectByKey(
         ctx,
@@ -349,6 +330,9 @@ export class UisControllerContract extends Contract {
     const org = await this.getObjectByKey(ctx, orgKey);
 
     org.subs[channel] = true;
+    // orgId = 2
+    org.subs["test"] = true;
+
     await ctx.stub.putState(
       orgKey,
       Buffer.from(stringify(sortKeysRecursive(org)))
@@ -391,7 +375,7 @@ export class UisControllerContract extends Contract {
     ctx: Context,
     userId: string,
     dataset: string
-  ): Promise<number> {
+  ): Promise<string> {
     // If no publishers, it's safe to throw error
     const channelToPubs = await this.getObjectByKey(
       ctx,
@@ -402,6 +386,7 @@ export class UisControllerContract extends Contract {
     // If no user, it's safe to throw error
     const user = await this.getObjectByKey(ctx, userKey);
 
+    const availableDatasetList = [];
     for (const orgId of user.orgs) {
       const orgKey = this.getOrgKey(ctx, orgId);
       // Never throw error
@@ -415,232 +400,12 @@ export class UisControllerContract extends Contract {
           const pub = await this.getObjectByKey(ctx, pubKey);
           const datasets = Object.keys(pub.datasets);
           if (datasets.includes(dataset)) {
-            return pub.datasets[dataset].access;
+            // TODO: returns all possible accesses
+            availableDatasetList.push(pub.datasets[dataset]);
           }
         }
       }
     }
-    return 0x000;
+    return JSON.stringify(availableDatasetList);
   }
-
-  // @Transaction()
-  // async AddOrg(ctx: Context, orgId: string, access: number): Promise<void> {
-  //   const isAdmin = await this.IsAdmin(ctx);
-  //   if (!isAdmin) {
-  //     throw new Error(`}Only admin can execute this function`);
-  //   }
-  //   const orgKey = this.GetOrgKey(ctx, orgId);
-  //   const exists = await this.OrgExists(ctx, orgKey);
-  //   if (exists) {
-  //     throw new Error(`The Org ${orgId} exists`);
-  //   }
-
-  //   const org = {
-  //     id: orgId,
-  //     access: access,
-  //     users: [],
-  //   };
-  //   await ctx.stub.putState(
-  //     orgKey,
-  //     Buffer.from(stringify(sortKeysRecursive(org)))
-  //   );
-
-  //   // Update `orgIds`
-  //   const orgIds = await this.GetContentByKey(ctx, ALL_ORG_KEY);
-  //   orgIds.push(org.id);
-  //   await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify(orgIds)));
-  // }
-
-  // @Transaction()
-  // async RemoveOrg(ctx: Context, orgId: string): Promise<void> {
-  //   const isAdmin = await this.IsAdmin(ctx);
-  //   if (!isAdmin) {
-  //     throw new Error(`Only admin can execute this function`);
-  //   }
-  //   const orgKey = this.GetOrgKey(ctx, orgId);
-  //   const exists = await this.OrgExists(ctx, orgKey);
-  //   if (!exists) {
-  //     throw new Error(`The Org ${orgId} does not exists`);
-  //   }
-  //   const orgIds = await this.GetContentByKey(ctx, ALL_ORG_KEY);
-  //   const index = orgIds.indexOf(orgId);
-  //   orgIds.splice(index, 1);
-  //   await ctx.stub.putState(ALL_ORG_KEY, Buffer.from(stringify(orgIds)));
-
-  //   return ctx.stub.deleteState(orgKey);
-  // }
-
-  // @Transaction(false)
-  // @Returns("string")
-  // async ReadAllOrgKeys(ctx: Context): Promise<string> {
-  //   const _orgIds = await ctx.stub.getState(ALL_ORG_KEY);
-  //   return _orgIds.toString();
-  // }
-
-  // @Transaction(false)
-  // async IsAdmin(ctx: Context): Promise<boolean> {
-  //   const ADMINS = await this.GetContentByKey(ctx, ADMIN_ORG_KEY);
-  //   if (ADMINS.includes(ctx.clientIdentity.getMSPID())) {
-  //     return true;
-  //   }
-  //   return false;
-  // }
-
-  // @Transaction(false)
-  // async IsOrgOwner(ctx: Context): Promise<boolean> {
-  //   return true;
-  // }
-
-  // @Transaction(false)
-  // @Returns("string")
-  // public async ReadOrg(ctx: Context, orgId: string): Promise<string> {
-  //   const orgKey = this.GetOrgKey(ctx, orgId);
-  //   const orgJSON = await ctx.stub.getState(orgKey);
-  //   if (!orgJSON || orgJSON.length === 0) {
-  //     throw new Error(`The org ${orgId} does not exist`);
-  //   }
-  //   return orgJSON.toString();
-  // }
-
-  // @Transaction(false)
-  // public async ReadAllOrgs(ctx: Context): Promise<Array<string>> {
-  //   const orgIds = await this.GetContentByKey(ctx, ALL_ORG_KEY);
-  //   console.info(`ReadAllOrgs: `, orgIds);
-  //   const orgs = [];
-  //   for (const orgId of orgIds) {
-  //     const org = await this.ReadOrg(ctx, orgId);
-  //     orgs.push(org);
-  //   }
-  //   return orgs;
-  // }
-
-  // @Transaction(false)
-  // @Returns("boolean")
-  // public async OrgExists(ctx: Context, id: string): Promise<boolean> {
-  //   const orgJSON = await ctx.stub.getState(id);
-  //   console.info("orgJSON: ", orgJSON.toString());
-  //   return orgJSON && orgJSON.length > 0;
-  // }
-  // async GetContentByKey(ctx: Context, key: string): Promise<any> {
-  //   const _content = await ctx.stub.getState(key);
-  //   const content = JSON.parse(_content.toString());
-  //   return content;
-  // }
-
-  // @Transaction(false)
-  // @Returns("number")
-  // public async CheckOrgAccess(ctx: Context, orgId: string): Promise<number> {
-  //   const orgKey = this.GetOrgKey(ctx, orgId);
-  //   const org = await this.GetContentByKey(ctx, orgKey);
-  //   return org.access;
-  // }
-  // @Transaction()
-  // public async UpdateOrgAccess(
-  //   ctx: Context,
-  //   orgId: string,
-  //   access: number
-  // ): Promise<void> {
-  //   const orgKey = this.GetOrgKey(ctx, orgId);
-  //   const exists = await this.OrgExists(ctx, orgKey);
-  //   if (!exists) {
-  //     throw new Error(`The Org ${orgId} does not exists`);
-  //   }
-  //   const org = await this.GetContentByKey(ctx, orgKey);
-  //   org.access = access;
-  //   await ctx.stub.putState(
-  //     orgKey,
-  //     Buffer.from(stringify(sortKeysRecursive(org)))
-  //   );
-  // }
-
-  // @Transaction()
-  // async AddUser(
-  //   ctx: Context,
-  //   userId: string,
-  //   email: string,
-  //   phone: string,
-  //   //
-  //   datasets: string,
-  //   access: number,
-  //   expiredAt: number
-  // ): Promise<void> {
-  //   // const permission = new Permission();
-  //   // permission.access = WRITE | READ | DELETE;
-  //   // permission.expiredAt = -1;
-  //   // permission.datasets = ["*"];
-  //   // const user = new User();
-  //   // user.id = userId;
-  //   // user.email = email;
-  //   // user.phone = phone;
-  //   // user.orgIds = [ctx.clientIdentity.getMSPID()];
-  //   // user.permission = permission;
-  //   // const userKey = await this.GetUserKey(ctx, user.id);
-  //   // await ctx.stub.putState(
-  //   //   userKey,
-  //   //   Buffer.from(stringify(sortKeysRecursive(user)))
-  //   // );
-  // }
-
-  // @Transaction()
-  // async AddUser(ctx: Context, user: User): Promise<void> {
-  //   const userKey = await this.GetUserKey(ctx, user.id);
-  //   if (!user["orgIds"]) {
-  //     user["orgIds"] = [ctx.clientIdentity.getMSPID()];
-  //   }
-
-  //   await ctx.stub.putState(
-  //     userKey,
-  //     Buffer.from(stringify(sortKeysRecursive(user)))
-  //   );
-  //   console.info(`[AddUser] ${JSON.stringify(user)}`);
-  // }
-
-  // @Transaction()
-  // async RemoveUser(ctx: Context, userId: string): Promise<void> {
-  //   const userKey = await this.GetUserKey(ctx, userId);
-  //   await ctx.stub.deleteState(userKey);
-  // }
-
-  // @Transaction(false)
-  // @Returns("User")
-  // async GetUser(ctx: Context, userId: string): Promise<User> {
-  //   const userKey = await this.GetUserKey(ctx, userId);
-  //   const user = await this.GetContentByKey(ctx, userKey);
-  //   return user as User;
-  // }
-
-  // @Transaction()
-  // async RemoveUser(ctx: Context, userId: string): Promise<void> {
-  //   const orgId = ctx.clientIdentity.getMSPID();
-  //   const orgKey = this.GetOrgKey(ctx, orgId);
-  //   const exists = await this.OrgExists(ctx, orgKey);
-  //   if (!exists) {
-  //     throw new Error(`The Org ${orgId} does not exists`);
-  //   }
-  //   const org = await this.GetContentByKey(ctx, orgKey);
-  //   const index = org.users.indexOf(userId);
-  //   if (index >= 0) {
-  //     org.users.splice(index, 1);
-  //     await ctx.stub.putState(
-  //       orgKey,
-  //       Buffer.from(stringify(sortKeysRecursive(org)))
-  //     );
-  //   }
-  // }
-  // @Transaction(false)
-  // @Returns("number")
-  // async CheckUserAccess(
-  //   ctx: Context,
-  //   orgId: string,
-  //   userId: string
-  // ): Promise<number> {
-  //   const orgKey = this.GetOrgKey(ctx, orgId);
-  //   const org = await this.GetContentByKey(ctx, orgKey);
-  //   const index = org.users.indexOf(userId);
-  //   if (index >= 0) {
-  //     return org.access;
-  //   }
-  //   // No Permission
-  //   return 0;
-  // }
 }
