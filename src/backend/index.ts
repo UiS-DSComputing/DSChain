@@ -25,7 +25,10 @@ const READ = 0x010;
 const DELETE = 0x100;
 
 const METHOD_MAPPER: { [key: string]: string } = {
-  initContract: "Init",
+  initContract: "init",
+  transferOwnershipTo: "transferOwnershipTo",
+  addOrg: "addOrg",
+  owner: "owner",
 };
 
 class Controller {
@@ -223,7 +226,11 @@ class Controller {
   }
 
   toJson(payload: string) {
-    return JSON.parse(payload);
+    try {
+      return JSON.parse(payload);
+    } catch (e) {
+      return payload;
+    }
   }
 
   async contractCall(funcName: string, args: Array<any>) {
@@ -237,7 +244,7 @@ class Controller {
       ...args
     );
     const resultJson = utf8Decoder.decode(resultBytes);
-    console.log(`${funcName}: ${resultJson}`);
+    console.log(`${funcName}: ${resultJson}`, typeof resultJson);
     return this.toJson(resultJson);
   }
 
@@ -377,6 +384,31 @@ app.post("/call", async (req, res) => {
       args as Array<string>
     );
     return res.json({ status: "success" });
+  } catch (err) {
+    console.log(err);
+    return res.json({ status: "fail", msg: err?.details[0]?.message });
+  }
+});
+
+app.post("/query", async (req, res) => {
+  try {
+    const { funcName, args = [], mspId } = req.body;
+    console.log("funName:", funcName);
+    console.log("args:", args, typeof args);
+    console.log("mspId:", mspId);
+
+    const resp = await controllers[mspId].contractQuery(
+      funcName as string,
+      args as Array<string>
+    );
+
+    if (typeof resp === "string") {
+      const ret = { status: "success" };
+      ret[funcName] = resp;
+      return res.json(ret);
+    } else {
+      return res.json({ status: "success", ...resp });
+    }
   } catch (err) {
     console.log(err);
     return res.json({ status: "fail", msg: err?.details[0]?.message });
