@@ -7,8 +7,35 @@ import {
 } from "fabric-contract-api";
 import stringify from "json-stringify-deterministic";
 import sortKeysRecursive from "sort-keys-recursive";
-import { Org, User } from "./model";
+// import { Org, User } from "./model";
 import * as Constants from "./constants";
+
+type User = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  orgs: { [key: string]: boolean }; // key = orgId
+};
+
+const EXPIRED = 0;
+const NEVER_EXPIRED = -1;
+
+type Dataset = {
+  name: string;
+  access: number;
+  expiredAt: number;
+};
+
+type Org = {
+  id: string;
+  name: string;
+  access: number;
+  users: { [key: string]: boolean }; // key = userId
+  pubs: { [key: string]: boolean }; // key = orgId
+  subs: { [key: string]: boolean }; // key = orgId
+  datasets: { [key: string]: Dataset }; // key = dataset, value = access
+};
 
 @Info({
   title: "UisController",
@@ -77,10 +104,10 @@ export class UisControllerContract extends Contract {
     await this.onlyOwner(ctx);
 
     const orgKey = this.getOrgKey(ctx, id);
-    await this.getObjectByKey(ctx, orgKey);
-
-    // Throw error if exists
-    throw new Error(`Org ${id} exists`);
+    const content = (await ctx.stub.getState(orgKey)).toString();
+    if (content !== "") {
+      throw new Error(`Key *${orgKey}* has corresponding content`);
+    }
 
     const org = {
       id,
@@ -135,16 +162,17 @@ export class UisControllerContract extends Contract {
   @Transaction()
   public async updateOrgDatasetAccess(
     ctx: Context,
-    id: string,
+    // id: string,
     dataset: string,
     access: number,
     expiredAt: number
   ): Promise<void> {
-    await this.onlyOwner(ctx);
-    const orgKey = this.getOrgKey(ctx, id);
+    // await this.onlyOwner(ctx);
+    const orgId = ctx.clientIdentity.getMSPID();
+    const orgKey = this.getOrgKey(ctx, orgId);
     const org = (await this.getObjectByKey(ctx, orgKey)) as Org;
     // Need consider permission inversion
-    org.datasets[dataset] = { access, expiredAt };
+    org.datasets[dataset] = { access, expiredAt, name: dataset } as Dataset;
 
     await ctx.stub.putState(
       orgKey,
@@ -200,13 +228,13 @@ export class UisControllerContract extends Contract {
     const userKey = this.getUserKey(ctx, id);
     let user: User;
     try {
-      const user = (await this.getObjectByKey(ctx, userKey)) as User;
+      user = (await this.getObjectByKey(ctx, userKey)) as User;
       user.name = name;
       user.email = email;
       user.phone = phone;
       user.orgs[orgId] = true;
     } catch (e) {
-      user = { id, name, email, phone } as User;
+      user = { id, name, email, phone, orgs: {} } as User;
       user.orgs[orgId] = true;
     }
 
@@ -286,8 +314,6 @@ export class UisControllerContract extends Contract {
     const org = await this.getObjectByKey(ctx, orgKey);
 
     org.pubs[channel] = true;
-    // orgId = 1
-    org.pubs["test"] = true;
 
     await ctx.stub.putState(
       orgKey,
@@ -295,7 +321,6 @@ export class UisControllerContract extends Contract {
     );
 
     // ////////////////////////////////////////////////////////////////////////////////
-    // { 'test': ['1', '2'] }
     let channelToPubs: { [key: string]: Array<string> } = {};
     try {
       channelToPubs = await this.getObjectByKey(
@@ -318,9 +343,17 @@ export class UisControllerContract extends Contract {
     ctx: Context,
     dataset: string,
     channel: string,
-    access
+    access: number
   ) {
-    // TODO:
+    const orgId = ctx.clientIdentity.getMSPID();
+    const orgKey = this.getOrgKey(ctx, orgId);
+    const org = await this.getObjectByKey(ctx, orgKey);
+    org.datasets[dataset].expiredAt = EXPIRED;
+
+    await ctx.stub.putState(
+      orgKey,
+      Buffer.from(stringify(sortKeysRecursive(org)))
+    );
   }
 
   @Transaction()
@@ -330,30 +363,11 @@ export class UisControllerContract extends Contract {
     const org = await this.getObjectByKey(ctx, orgKey);
 
     org.subs[channel] = true;
-    // orgId = 2
-    org.subs["test"] = true;
 
     await ctx.stub.putState(
       orgKey,
       Buffer.from(stringify(sortKeysRecursive(org)))
     );
-
-    ////////////////////////////////////////////////////////////////////////////////
-    // let channelToSubs = {};
-    // try {
-    //   channelToSubs = await this.getObjectByKey(
-    //     ctx,
-    //     Constants.KEYS.CHANNEL_TO_PUBS
-    //   );
-    //   channelToSubs[channel].push(orgId);
-    // } catch (e) {
-    //   channelToSubs[channel] = [orgId];
-    // }
-
-    // await ctx.stub.putState(
-    //   Constants.KEYS.CHANNEL_TO_SUBS,
-    //   Buffer.from(stringify(sortKeysRecursive(channelToSubs)))
-    // );
   }
 
   @Transaction()
@@ -387,7 +401,7 @@ export class UisControllerContract extends Contract {
     const user = await this.getObjectByKey(ctx, userKey);
 
     const availableDatasetList = [];
-    for (const orgId of user.orgs) {
+    for (const orgId of Object.keys(user.orgs)) {
       const orgKey = this.getOrgKey(ctx, orgId);
       // Never throw error
       const org = await this.getObjectByKey(ctx, orgKey);
@@ -400,7 +414,6 @@ export class UisControllerContract extends Contract {
           const pub = await this.getObjectByKey(ctx, pubKey);
           const datasets = Object.keys(pub.datasets);
           if (datasets.includes(dataset)) {
-            // TODO: returns all possible accesses
             availableDatasetList.push(pub.datasets[dataset]);
           }
         }

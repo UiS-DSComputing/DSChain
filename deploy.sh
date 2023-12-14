@@ -18,10 +18,12 @@ source $FABRIC_HOME/test-network/peer1-env.sh
 peer lifecycle chaincode package ${NAME}_${VERSION}.tar.gz --path . --lang node --label "${NAME}_${VERSION}"
 echo "Install ..."
 peer lifecycle chaincode install "${NAME}_${VERSION}.tar.gz"
+echo "Install ..."
 peer lifecycle chaincode queryinstalled
-
 source $FABRIC_HOME/test-network/peer2-env.sh
+echo "Install ..."
 peer lifecycle chaincode install "${NAME}_${VERSION}.tar.gz"
+echo "Install ..."
 peer lifecycle chaincode queryinstalled
 
 echo "Extract CC_PACKAGE_ID"

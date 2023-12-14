@@ -28,8 +28,16 @@ const METHOD_MAPPER: { [key: string]: string } = {
   initContract: "init",
   transferOwnershipTo: "transferOwnershipTo",
   addOrg: "addOrg",
-  owner: "owner",
+  updateOrgName: "updateOrgName",
+  updateOrgAccess: "updateOrgAccess",
+  updateOrgDatasetAccess: "updateOrgDatasetAccess",
+  removeOrg: "removeOrg",
+  addUser: "addUser",
+  publishDatasetTo: "publishDatasetTo",
+  subscribe: "subscribe",
   queryAccessOnDataset: "queryAccessOnDataset",
+  owner: "owner",
+  getOrg: "getOrg",
 };
 
 class Controller {
@@ -236,7 +244,7 @@ class Controller {
 
   async contractCall(funcName: string, args: Array<any>) {
     const _funcName = METHOD_MAPPER[funcName];
-    console.log(`Invoking method ${_funcName} on the chain ...`);
+    console.log(`Invoking method '${_funcName}' on the chain ...`);
     await this.contract.submitTransaction(_funcName, ...args);
   }
   async contractQuery(funcName: string, args: Array<any>) {
@@ -245,77 +253,9 @@ class Controller {
       ...args
     );
     const resultJson = utf8Decoder.decode(resultBytes);
-    console.log(`${funcName}: ${resultJson}`, typeof resultJson);
+    console.log(`${funcName}: ${resultJson}`, typeof resultJson, resultJson);
     return this.toJson(resultJson);
   }
-
-  // WRITE
-  // async initContract(): Promise<void> {
-  //   await this.contract.submitTransaction("Init");
-  // }
-
-  // async UpdateOrgAccess(orgId: string, access: number): Promise<void> {
-  //   await this.contract.submitTransaction(
-  //     "UpdateOrgAccess",
-  //     orgId,
-  //     `${access}`
-  //   );
-  // }
-
-  // async AddOrg(orgId: string, access: number): Promise<void> {
-  //   await this.contract.submitTransaction("AddOrg", orgId, `${access}`);
-  // }
-  // async RemoveOrg(orgId: string): Promise<void> {
-  //   await this.contract.submitTransaction("RemoveOrg", orgId);
-  // }
-  // // READ
-  // async ReadAllOrgs(): Promise<any> {
-  //   const resultBytes = await this.contract.evaluateTransaction("ReadAllOrgs");
-  //   const resultJson = utf8Decoder.decode(resultBytes);
-  //   return this.toJson(resultJson);
-  // }
-
-  // async ReadOrg(orgId: string): Promise<any> {
-  //   const resultBytes = await this.contract.evaluateTransaction(
-  //     "ReadOrg",
-  //     orgId
-  //   );
-  //   const resultJson = utf8Decoder.decode(resultBytes);
-  //   return this.toJson(resultJson);
-  // }
-
-  // async IsAdmin(): Promise<any> {
-  //   const resultBytes = await this.contract.evaluateTransaction("IsAdmin");
-  //   const resultJson = utf8Decoder.decode(resultBytes);
-  //   return this.toJson(resultJson);
-  // }
-
-  // async CheckOrgAccess(orgId: string): Promise<any> {
-  //   const resultBytes = await this.contract.evaluateTransaction(
-  //     "CheckOrgAccess",
-  //     orgId
-  //   );
-  //   const resultJson = utf8Decoder.decode(resultBytes);
-  //   return this.toJson(resultJson);
-  // }
-
-  // async CheckUserAccess(orgId: string, userId: string): Promise<any> {
-  //   const resultBytes = await this.contract.evaluateTransaction(
-  //     "CheckUserAccess",
-  //     orgId,
-  //     userId
-  //   );
-  //   const resultJson = utf8Decoder.decode(resultBytes);
-  //   return this.toJson(resultJson);
-  // }
-
-  // async ReadAllOrgKeys(): Promise<any> {
-  //   const resultBytes = await this.contract.evaluateTransaction(
-  //     "ReadAllOrgKeys"
-  //   );
-  //   const resultJson = utf8Decoder.decode(resultBytes);
-  //   return this.toJson(resultJson);
-  // }
 }
 
 const app: Express = express();
@@ -341,35 +281,6 @@ app.listen(PORT, async () => {
 //     return res.json({ status: "success" });
 //   } catch (err) {
 //     return res.json({ status: "fail" });
-//   }
-// });
-
-// app.get("/inputParameters", async (req, res) => {
-//   try {
-//     const ret = await controller.getInputParameters();
-//     return res.json({ status: "success", ...ret });
-//   } catch (err) {
-//     return res.json({ status: "fail" });
-//   }
-// });
-
-// app.get("/contractQuery", async (req, res) => {
-//   try {
-//     const { funcName, args = [] } = req.query;
-//     console.log("funName:", funcName);
-//     console.log("args:", args, typeof args);
-//     // @ts-ignore
-//     const ret = await controller.contractQuery(
-//       funcName as string,
-//       JSON.parse(args as string) as Array<string | number | boolean>
-//     );
-//     const resp = {};
-//     // @ts-ignore
-//     resp[funcName] = ret;
-//     return res.json({ status: "success", ...resp });
-//   } catch (err) {
-//     console.log(err);
-//     return res.json({ status: "fail", msg: err?.details[0]?.message });
 //   }
 // });
 
@@ -402,14 +313,14 @@ app.post("/query", async (req, res) => {
       funcName as string,
       args as Array<string>
     );
-
-    if (typeof resp === "string") {
-      const ret = { status: "success" };
-      ret[funcName] = resp;
-      return res.json(ret);
-    } else {
-      return res.json({ status: "success", ...resp });
-    }
+    console.log("resp: ", resp);
+    // if (typeof resp === "string") {
+    //   const ret = { status: "success" };
+    //   ret[funcName] = resp;
+    //   return res.json(ret);
+    // } else {
+    return res.json({ status: "success", data: resp });
+    // }
   } catch (err) {
     console.log(err);
     return res.json({ status: "fail", msg: err?.details[0]?.message });
