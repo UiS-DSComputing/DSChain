@@ -326,3 +326,37 @@ app.post("/query", async (req, res) => {
     return res.json({ status: "fail", msg: err?.details[0]?.message });
   }
 });
+
+export const PERMISSIONS = {
+  WRITE: 0x001,
+  READ: 0x010,
+  DELETE: 0x100,
+};
+
+app.get("/dataset", async (req, res) => {
+  try {
+    const query = req.query;
+    const respList = await controllers["Org1MSP"].contractQuery(
+      "queryAccessOnDataset",
+      [query.userId, query.dataset]
+    );
+
+    let link: string;
+    for (const resp of respList) {
+      if (resp.access & 0x010) {
+        link = resp.location;
+        break;
+      }
+    }
+
+    if (link) {
+      return res.json({ status: "success", location: link });
+    } else {
+      res.status(403);
+      return res.json({ status: "success", msg: "No Permission" });
+    }
+  } catch (err) {
+    console.log(err);
+    return res.json({ status: "fail", msg: err?.details[0]?.message });
+  }
+});

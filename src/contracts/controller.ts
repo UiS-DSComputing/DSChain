@@ -23,6 +23,7 @@ const NEVER_EXPIRED = -1;
 
 type Dataset = {
   name: string;
+  location: string;
   access: number;
   expiredAt: number;
 };
@@ -165,14 +166,20 @@ export class UisControllerContract extends Contract {
     // id: string,
     dataset: string,
     access: number,
-    expiredAt: number
+    expiredAt: number,
+    location: string
   ): Promise<void> {
     // await this.onlyOwner(ctx);
     const orgId = ctx.clientIdentity.getMSPID();
     const orgKey = this.getOrgKey(ctx, orgId);
     const org = (await this.getObjectByKey(ctx, orgKey)) as Org;
     // Need consider permission inversion
-    org.datasets[dataset] = { access, expiredAt, name: dataset } as Dataset;
+    org.datasets[dataset] = {
+      access,
+      expiredAt,
+      name: dataset,
+      location,
+    } as Dataset;
 
     await ctx.stub.putState(
       orgKey,
